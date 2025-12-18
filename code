@@ -1,0 +1,64 @@
+import asyncio
+import random
+import string
+import sqlite3
+
+from aiogram import Bot, Dispatcher, types
+from aiogram.filters import CommandStart
+from aiogram.types import ReplyKeyboardMarkup, KeyboardButton
+
+API_TOKEN = "ваш токен бота"
+ADMIN_USERNAME = "ваш юзернейм"
+
+conn = sqlite3.connect("keys.db")
+cursor = conn.cursor()
+cursor.execute("CREATE TABLE IF NOT EXISTS keys (key TEXT PRIMARY KEY, used INTEGER)")
+conn.commit()
+
+bot = Bot(token=API_TOKEN)
+dp = Dispatcher()
+
+def generate_key():
+    letters_and_digits = string.ascii_uppercase + string.digits
+    return ''.join(random.choices(letters_and_digits, k=6))
+
+@dp.message(CommandStart())
+async def start(message: types.Message):
+    if message.from_user.username == ADMIN_USERNAME:
+        kb = ReplyKeyboardMarkup(resize_keyboard=True)
+        kb.add(KeyboardButton("Сгенерировать ключ"))
+        await message.answer("Привет! Выберите действие:", reply_markup=kb)
+    else:
+        await message.answer("Привет! Введите ключ активации")
+
+@dp.message(lambda m: m.text == "Сгенерировать ключ")
+async def gen_key(message: types.Message):
+    if message.from_user.username != ADMIN_USERNAME:
+        return
+
+    key = generate_key()
+    cursor.execute("INSERT OR IGNORE INTO keys VALUES (?, 0)", (key,))
+    conn.commit()
+    await message.answer(f"Вот ваш ключ: {key}")
+
+@dp.message()
+async def check_key(message: types.Message):
+    if message.from_user.username == ADMIN_USERNAME:
+        return
+
+    key = message.text.strip()
+    cursor.execute("SELECT used FROM keys WHERE key = ?", (key,))
+    result = cursor.fetchone()
+
+    if result and result[0] == 0:
+        cursor.execute("UPDATE keys SET used = 1 WHERE key = ?", (key,))
+        conn.commit()
+        await message.answer("Ваш ключ подошел")
+    else:
+        await message.answer("Ваш ключ не подошел")
+
+async def main():
+    await dp.start_polling(bot)
+
+if __name__ == "__main__":
+    asyncio.run(main())
